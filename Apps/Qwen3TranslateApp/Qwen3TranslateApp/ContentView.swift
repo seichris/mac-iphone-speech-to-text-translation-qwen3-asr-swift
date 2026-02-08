@@ -97,9 +97,7 @@ struct ContentView: View {
                 Text("Transcript")
                     .font(.headline)
                 if !vm.partialTranscript.isEmpty {
-                    Text(vm.partialTranscript)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
+                    CopyableTextBox(text: vm.partialTranscript, onDoubleClickCopy: false)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,18 +108,12 @@ struct ContentView: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(vm.segments) { seg in
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(seg.transcript)
-                                .font(.body)
+                            CopyableTextBox(text: seg.transcript)
                             if useAppleTranslation, let t = seg.translation, !t.isEmpty {
-                                Text(t)
-                                    .font(.body)
-                                    .foregroundStyle(.secondary)
+                                CopyableTextBox(text: t)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(.thinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
             }
