@@ -14,7 +14,7 @@ public protocol AudioFrameSource: Actor {
 }
 
 /// Microphone audio capture using AVAudioEngine
-@available(macOS 13.0, *)
+@available(macOS 13.0, iOS 17.0, *)
 public actor MicrophoneAudioSource: AudioFrameSource {
     public let sampleRate: Int = 16000  // WhisperFeatureExtractor reference rate
     public let frameSize: Int  // Number of samples per frame (e.g., 320 for 20ms at 16kHz)
@@ -42,6 +42,10 @@ public actor MicrophoneAudioSource: AudioFrameSource {
     
     public func start() async throws {
         guard !isRunning else { return }
+
+        #if os(iOS)
+        try await configureAudioSession()
+        #endif
         
         let audioEngine = AVAudioEngine()
         self.audioEngine = audioEngine
@@ -133,6 +137,15 @@ public actor MicrophoneAudioSource: AudioFrameSource {
         outputFormat = nil
         isRunning = false
         continuation?.finish()
+
+        #if os(iOS)
+        do {
+            try AVAudioSession.sharedInstance().setActive(false)
+        } catch {
+            // Best-effort: don't surface stop-time audio session errors.
+            Qwen3ASRDebug.log("MicrophoneAudioSource: AVAudioSession deactivation failed: \(error)")
+        }
+        #endif
     }
 
     private func setContinuation(_ continuation: AsyncStream<[Float]>.Continuation) {
@@ -158,6 +171,31 @@ public actor MicrophoneAudioSource: AudioFrameSource {
             pendingStartIndex = 0
         }
     }
+
+    #if os(iOS)
+    private func configureAudioSession() async throws {
+        let session = AVAudioSession.sharedInstance()
+
+        // Request permission early so start() fails with an actionable error.
+        let granted = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            session.requestRecordPermission { ok in
+                cont.resume(returning: ok)
+            }
+        }
+        guard granted else {
+            throw RealtimeError.microphoneSetupFailed("Microphone permission denied (check NSMicrophoneUsageDescription in the host app).")
+        }
+
+        do {
+            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setPreferredSampleRate(Double(sampleRate))
+            try session.setPreferredIOBufferDuration(0.02) // ~20ms
+            try session.setActive(true)
+        } catch {
+            throw RealtimeError.microphoneSetupFailed("AVAudioSession setup failed: \(error)")
+        }
+    }
+    #endif
 }
 
 /// Simulated audio source for testing (reads from file)
