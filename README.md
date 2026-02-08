@@ -88,6 +88,40 @@ Notes:
 - `--to` / `--from` accept common codes or names. The CLI normalizes them for the model prompt (e.g. `en` -> `English`, `zh`/`cn` -> `Chinese`).
 - First time: macOS will prompt for microphone permission (grant it to your terminal app).
 
+### Apple Translation (SwiftUI Apps)
+
+The CLI’s `[TRANS]` uses a second ASR decode pass and is **not reliable for true translation**. If you want real translation for final segments, you can use Apple’s `Translation` framework from a SwiftUI host app and provide a `TranslationSession`:
+
+```swift
+import SwiftUI
+import Translation
+import Qwen3ASR
+
+@available(macOS 15.0, iOS 18.0, *)
+struct ContentView: View {
+    @State private var config: TranslationSession.Configuration? = .init(
+        source: .init(identifier: "zh"),
+        target: .init(identifier: "en")
+    )
+
+    var body: some View {
+        Text("…")
+            .translationTask(config) { session in
+                let model = try await Qwen3ASRModel.fromPretrained(modelId: "mlx-community/Qwen3-ASR-0.6B-4bit")
+                let stream = await model.realtimeTranslate(
+                    audioSource: MicrophoneAudioSource(frameSizeMs: 20),
+                    options: .init(targetLanguage: "English", sourceLanguage: "Chinese"),
+                    translationSession: session
+                )
+                for await event in stream {
+                    // Handle .final + .translation events
+                    _ = event
+                }
+            }
+    }
+}
+```
+
 ## Usage
 
 ### Basic Transcription
