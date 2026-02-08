@@ -75,8 +75,8 @@ public actor RealtimeTranslator {
     private var samplesSinceLastInference: Int = 0
     private var isInferring: Bool = false
     
-    // Translation cache for finalized segments
-    private var translationCache: [String: String] = [:]
+    // Track last emitted translation text so we can emit only the suffix.
+    private var lastTranslatedText: String = ""
     
     public init(
         model: Qwen3ASRModel,
@@ -130,7 +130,11 @@ public actor RealtimeTranslator {
                                     ))
 
                                     if options.enableTranslation {
-                                        await translateAndEmit(text: forced.newlyCommitted, continuation: continuation)
+                                        await translateAndEmit(
+                                            text: forced.newlyCommitted,
+                                            audio: audioBuffer.toArray(),
+                                            continuation: continuation
+                                        )
                                     }
                                 }
                             }
@@ -241,6 +245,7 @@ public actor RealtimeTranslator {
             if options.enableTranslation {
                 await translateAndEmit(
                     text: state.newlyCommitted,
+                    audio: audioSnapshot,
                     continuation: continuation
                 )
             }
@@ -251,40 +256,33 @@ public actor RealtimeTranslator {
     /// Translate text and emit event
     private func translateAndEmit(
         text: String,
+        audio: [Float],
         continuation: AsyncStream<RealtimeTranslationEvent>.Continuation
     ) async {
-        // Check cache
-        if let cached = translationCache[text] {
-            let event = RealtimeTranslationEvent(
-                kind: .translation,
-                transcript: text,
-                translation: cached,
-                isStable: true
-            )
-            continuation.yield(event)
-            return
-        }
-        
-        // Perform translation using text-only generation.
-        // Keep the prompt single-line to avoid relying on explicit newline tokens.
-        let prompt = "Translate to \(options.targetLanguage). Output only the translation. Text: \(text)"
-        
-        if let translation = model.generateTextOnly(
-            prompt: prompt,
+        // Prefer "built-in" translation behavior by forcing output language during ASR decoding.
+        // This avoids relying on text-only prompting/tokenization, which is not robust yet.
+        let translatedRaw = model.transcribe(
+            audio: audio,
+            sampleRate: sampleRate,
+            language: options.targetLanguage,
             maxTokens: 200
-        ) {
-            let cleaned = Self.parseASROutput(translation).text.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Cache the translation
-            translationCache[text] = cleaned
-            
-            let event = RealtimeTranslationEvent(
-                kind: .translation,
-                transcript: text,
-                translation: cleaned,
-                isStable: true
-            )
-            continuation.yield(event)
-        }
+        )
+
+        let translatedFull = Self.parseASROutput(translatedRaw).text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !translatedFull.isEmpty else { return }
+
+        let newlyTranslated = Self.computeNewSuffix(previous: lastTranslatedText, current: translatedFull)
+        lastTranslatedText = translatedFull
+
+        let cleanedNew = newlyTranslated.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedNew.isEmpty else { return }
+
+        continuation.yield(.init(
+            kind: .translation,
+            transcript: text,
+            translation: cleanedNew,
+            isStable: true
+        ))
     }
     
     /// Finalize translation (commit any pending text)
@@ -302,6 +300,7 @@ public actor RealtimeTranslator {
             if options.enableTranslation {
                 await translateAndEmit(
                     text: finalState.newlyCommitted,
+                    audio: audioBuffer.toArray(),
                     continuation: continuation
                 )
             }
@@ -332,6 +331,34 @@ public actor RealtimeTranslator {
         }
 
         return (nil, trimmed)
+    }
+
+    private static func computeNewSuffix(previous: String, current: String) -> String {
+        if previous.isEmpty { return current }
+        if current.hasPrefix(previous) {
+            return String(current.dropFirst(previous.count))
+        }
+
+        // Find max overlap where suffix(previous) == prefix(current).
+        let p = Array(previous)
+        let c = Array(current)
+        let maxLen = min(p.count, c.count)
+        var overlap = 0
+        for len in stride(from: maxLen, to: 0, by: -1) {
+            let start = p.count - len
+            var ok = true
+            for i in 0..<len {
+                if p[start + i] != c[i] {
+                    ok = false
+                    break
+                }
+            }
+            if ok {
+                overlap = len
+                break
+            }
+        }
+        return String(current.dropFirst(overlap))
     }
 }
 
