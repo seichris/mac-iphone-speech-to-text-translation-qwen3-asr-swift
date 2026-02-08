@@ -1,6 +1,6 @@
 # Qwen3-ASR Swift
 
-A Swift implementation of Qwen3-ASR speech recognition model using [MLX Swift](https://github.com/ml-explore/mlx-swift) for Apple Silicon.
+A Swift implementation of [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) speech recognition model using [MLX Swift](https://github.com/ml-explore/mlx-swift) for Apple Silicon.
 
 ## Overview
 
