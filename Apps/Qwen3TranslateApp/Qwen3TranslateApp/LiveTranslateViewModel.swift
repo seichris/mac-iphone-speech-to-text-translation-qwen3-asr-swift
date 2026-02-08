@@ -28,27 +28,36 @@ final class LiveTranslateViewModel: ObservableObject {
     @Published var status: Status = .idle
     @Published var partialTranscript: String = ""
     @Published var segments: [Segment] = []
+    @Published var isRunning: Bool = false
+    @Published var isStopping: Bool = false
 
     private var model: Qwen3ASRModel?
     private var activeAudioSource: MicrophoneAudioSource?
-    private var activeRunID: UUID?
+    private var stopRequested: Bool = false
 
     func clear() {
         partialTranscript = ""
         segments.removeAll()
     }
 
-    func stop() {
-        let runID = activeRunID
-        log.info("stop() requested. activeRunID=\(String(describing: runID))")
-        activeRunID = nil
+    func start() {
+        log.info("start() requested")
+        stopRequested = false
+        isStopping = false
+        clear()
+        isRunning = true
+    }
+
+    func requestStop() {
+        guard isRunning else { return }
+        log.info("requestStop() requested")
+        stopRequested = true
+        isStopping = true
+
+        // Best-effort: stop capture immediately. The streaming task will drain and then exit.
         if let src = activeAudioSource {
-            Task {
-                await src.stop()
-            }
+            Task { await src.stop() }
         }
-        activeAudioSource = nil
-        status = (model == nil) ? .idle : .ready
     }
 
     #if canImport(Translation)
@@ -59,12 +68,18 @@ final class LiveTranslateViewModel: ObservableObject {
         from: SupportedLanguage,
         to: SupportedLanguage
     ) async {
-        let runID = UUID()
-        activeRunID = runID
         status = .running
 
         do {
-            log.info("run() start. runID=\(runID.uuidString) from=\(from.displayName, privacy: .public) to=\(to.displayName, privacy: .public)")
+            if stopRequested {
+                // Start immediately followed by stop can happen if UI toggles quickly.
+                isStopping = false
+                isRunning = false
+                status = (model == nil) ? .idle : .ready
+                return
+            }
+
+            log.info("run() start. from=\(from.displayName, privacy: .public) to=\(to.displayName, privacy: .public)")
 
             let model = try await loadModelIfNeeded(modelId: modelId)
 
@@ -86,21 +101,22 @@ final class LiveTranslateViewModel: ObservableObject {
 
             for await event in stream {
                 if Task.isCancelled { break }
-                if activeRunID != runID { break }
                 await handle(event: event, translationSession: translationSession)
             }
 
             if !Task.isCancelled {
-                if activeRunID == runID {
-                    activeRunID = nil
-                    activeAudioSource = nil
-                }
-                log.info("run() finished. runID=\(runID.uuidString)")
+                activeAudioSource = nil
+                isStopping = false
+                isRunning = false
                 status = .ready
+                log.info("run() finished")
             }
         } catch {
             if !Task.isCancelled {
-                log.error("run() error. runID=\(runID.uuidString) error=\(String(describing: error), privacy: .public)")
+                log.error("run() error. error=\(String(describing: error), privacy: .public)")
+                activeAudioSource = nil
+                isStopping = false
+                isRunning = false
                 status = .error(String(describing: error))
             }
         }

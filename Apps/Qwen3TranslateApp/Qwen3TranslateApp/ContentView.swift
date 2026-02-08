@@ -15,8 +15,6 @@ struct ContentView: View {
         target: .init(identifier: SupportedLanguage.english.id)
     )
 
-    @State private var isRunning = false
-
     private let modelIdDefault = "mlx-community/Qwen3-ASR-0.6B-4bit"
 
     var body: some View {
@@ -31,13 +29,13 @@ struct ContentView: View {
         }
         .onChange(of: from) { _, _ in
             rebuildTranslationConfig()
-            if isRunning { isRunning = false }
+            if vm.isRunning { vm.requestStop() }
         }
         .onChange(of: to) { _, _ in
             rebuildTranslationConfig()
-            if isRunning { isRunning = false }
+            if vm.isRunning { vm.requestStop() }
         }
-        .translationTask(isRunning ? translationConfig : nil) { session in
+        .translationTask(vm.isRunning ? translationConfig : nil) { session in
             // Runs while active; cancelled automatically when `translationConfig` becomes nil.
             await vm.run(
                 translationSession: session,
@@ -56,6 +54,7 @@ struct ContentView: View {
                 }
             }
             .pickerStyle(.menu)
+            .disabled(vm.isRunning)
 
             Button {
                 let tmp = from
@@ -66,6 +65,7 @@ struct ContentView: View {
                     .font(.system(size: 18, weight: .semibold))
             }
             .buttonStyle(.bordered)
+            .disabled(vm.isRunning)
 
             Picker("To", selection: $to) {
                 ForEach(SupportedLanguage.all) { lang in
@@ -73,6 +73,7 @@ struct ContentView: View {
                 }
             }
             .pickerStyle(.menu)
+            .disabled(vm.isRunning)
         }
     }
 
@@ -123,22 +124,22 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
-                isRunning.toggle()
-                if !isRunning {
-                    vm.stop()
+                if vm.isRunning {
+                    vm.requestStop()
                 } else {
-                    vm.clear()
+                    vm.start()
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: isRunning ? "stop.fill" : "mic.fill")
-                    Text(isRunning ? "Stop" : "Start")
+                    Image(systemName: vm.isRunning ? "stop.fill" : "mic.fill")
+                    Text(vm.isStopping ? "Stopping…" : (vm.isRunning ? "Stop" : "Start"))
                 }
                 .font(.system(size: 16, weight: .semibold))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
+            .disabled(vm.isStopping)
         }
     }
 
