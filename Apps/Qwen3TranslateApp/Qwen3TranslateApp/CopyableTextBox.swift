@@ -12,9 +12,18 @@ struct CopyableTextBox: View {
     var onDoubleClickCopy: Bool = true
 
     var body: some View {
+        Group {
+            if selectable {
+                content.textSelection(.enabled)
+            } else {
+                content.textSelection(.disabled)
+            }
+        }
+    }
+
+    private var content: some View {
         Text(text)
             .font(.body)
-            .textSelection(selectable ? .enabled : .disabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
             .background(
