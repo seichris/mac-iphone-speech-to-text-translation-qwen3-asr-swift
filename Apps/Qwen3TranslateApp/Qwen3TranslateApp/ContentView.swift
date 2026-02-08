@@ -8,6 +8,7 @@ struct ContentView: View {
 
     @State private var from = SupportedLanguage.chinese
     @State private var to = SupportedLanguage.english
+    @State private var useAppleTranslation = true
 
     // Keeping this in state makes `.translationTask` restart when languages change.
     @State private var translationConfig: TranslationSession.Configuration? = .init(
@@ -35,7 +36,7 @@ struct ContentView: View {
             rebuildTranslationConfig()
             if vm.isRunning { vm.requestStop() }
         }
-        .translationTask(vm.isRunning ? translationConfig : nil) { session in
+        .translationTask((vm.isRunning && useAppleTranslation) ? translationConfig : nil) { session in
             // Runs while active; cancelled automatically when `translationConfig` becomes nil.
             await vm.run(
                 translationSession: session,
@@ -43,6 +44,10 @@ struct ContentView: View {
                 from: from,
                 to: to
             )
+        }
+        .task(id: (vm.isRunning && !useAppleTranslation)) {
+            guard vm.isRunning, !useAppleTranslation else { return }
+            await vm.runNoTranslation(modelId: modelIdDefault, from: from)
         }
     }
 
@@ -74,6 +79,15 @@ struct ContentView: View {
             }
             .pickerStyle(.menu)
             .disabled(vm.isRunning)
+
+            Button {
+                useAppleTranslation.toggle()
+            } label: {
+                Text(useAppleTranslation ? "Apple Translate: On" : "Apple Translate: Off")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+            .disabled(vm.isRunning)
         }
     }
 
@@ -98,14 +112,10 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(seg.transcript)
                                 .font(.body)
-                            if let t = seg.translation, !t.isEmpty {
+                            if useAppleTranslation, let t = seg.translation, !t.isEmpty {
                                 Text(t)
                                     .font(.body)
                                     .foregroundStyle(.secondary)
-                            } else {
-                                Text("…")
-                                    .font(.body)
-                                    .foregroundStyle(.tertiary)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

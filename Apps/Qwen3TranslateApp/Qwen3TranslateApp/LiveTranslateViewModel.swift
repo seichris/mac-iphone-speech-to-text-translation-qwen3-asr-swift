@@ -60,6 +60,61 @@ final class LiveTranslateViewModel: ObservableObject {
         }
     }
 
+    @available(iOS 18.0, macOS 15.0, *)
+    func runNoTranslation(modelId: String, from: SupportedLanguage) async {
+        status = .running
+
+        do {
+            if stopRequested {
+                isStopping = false
+                isRunning = false
+                status = (model == nil) ? .idle : .ready
+                return
+            }
+
+            log.info("runNoTranslation() start. from=\(from.displayName, privacy: .public)")
+            let model = try await loadModelIfNeeded(modelId: modelId)
+
+            let audioSource = MicrophoneAudioSource(frameSizeMs: 20)
+            activeAudioSource = audioSource
+
+            let options = RealtimeTranslationOptions(
+                targetLanguage: "English",
+                sourceLanguage: from.modelName,
+                windowSeconds: 10.0,
+                stepMs: 500,
+                enableVAD: true,
+                enableTranslation: false
+            )
+
+            let stream = await model.realtimeTranslate(
+                audioSource: audioSource,
+                options: options
+            )
+
+            for await event in stream {
+                if Task.isCancelled { break }
+                await handleNoTranslation(event: event)
+            }
+
+            if !Task.isCancelled {
+                activeAudioSource = nil
+                isStopping = false
+                isRunning = false
+                status = .ready
+                log.info("runNoTranslation() finished")
+            }
+        } catch {
+            if !Task.isCancelled {
+                log.error("runNoTranslation() error. error=\(String(describing: error), privacy: .public)")
+                activeAudioSource = nil
+                isStopping = false
+                isRunning = false
+                status = .error(String(describing: error))
+            }
+        }
+    }
+
     #if canImport(Translation)
     @available(iOS 18.0, macOS 15.0, *)
     func run(
@@ -122,6 +177,28 @@ final class LiveTranslateViewModel: ObservableObject {
         }
     }
     #endif
+
+    private func handleNoTranslation(event: RealtimeTranslationEvent) async {
+        switch event.kind {
+        case .partial:
+            partialTranscript = event.transcript
+
+        case .final:
+            partialTranscript = ""
+            let cleaned = event.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleaned.isEmpty else { return }
+            segments.append(.init(id: UUID(), transcript: cleaned, translation: nil, date: event.timestamp))
+
+        case .metrics:
+            if let err = event.metadata?["error"], !err.isEmpty {
+                log.error("metrics error: \(err, privacy: .public)")
+                status = .error(err)
+            }
+
+        case .translation:
+            break
+        }
+    }
 
     #if canImport(Translation)
     @available(iOS 18.0, macOS 15.0, *)
