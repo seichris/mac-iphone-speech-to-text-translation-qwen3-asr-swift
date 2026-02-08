@@ -60,7 +60,7 @@ public struct RealtimeTranslationEvent: Sendable {
 }
 
 /// Realtime translation engine
-@available(macOS 13.0, *)
+@available(macOS 13.0, iOS 17.0, *)
 public actor RealtimeTranslator {
     private let model: Qwen3ASRModel
     private let options: RealtimeTranslationOptions
@@ -365,7 +365,7 @@ public actor RealtimeTranslator {
 /// Convenience extension on Qwen3ASRModel
 public extension Qwen3ASRModel {
     /// Create a realtime translator
-    @available(macOS 13.0, *)
+    @available(macOS 13.0, iOS 17.0, *)
     func realtimeTranslate(
         audioSource: any AudioFrameSource,
         options: RealtimeTranslationOptions
