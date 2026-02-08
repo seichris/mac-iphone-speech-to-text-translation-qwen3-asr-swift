@@ -213,6 +213,7 @@ public class WhisperFeatureExtractor {
             fatalError("Mel filterbank not initialized")
         }
 
+        // Debug: check magnitude (power spectrum) and filterbank stats
         if Qwen3ASRDebug.enabled {
             var magMean: Float = 0
             var magMax: Float = -Float.infinity
@@ -238,6 +239,7 @@ public class WhisperFeatureExtractor {
             }
         }
 
+        // Debug: check mel spec before log
         if Qwen3ASRDebug.enabled {
             var melMean: Float = 0
             var melMax: Float = -Float.infinity
@@ -252,6 +254,7 @@ public class WhisperFeatureExtractor {
             melSpec[i] = log10(max(melSpec[i], epsilon))
         }
 
+        // Debug: check log10 mel values before normalization
         if Qwen3ASRDebug.enabled {
             var logMax: Float = -Float.infinity
             var logMin: Float = Float.infinity
@@ -272,6 +275,7 @@ public class WhisperFeatureExtractor {
             melSpec[i] = max(melSpec[i], minClamp)
         }
 
+        // Debug: check after clipping
         if Qwen3ASRDebug.enabled {
             var clippedMin: Float = Float.infinity
             vDSP_minv(melSpec, 1, &clippedMin, vDSP_Length(melSpec.count))
@@ -283,6 +287,7 @@ public class WhisperFeatureExtractor {
             melSpec[i] = (melSpec[i] + 4.0) / 4.0
         }
 
+        // Debug: check final values
         if Qwen3ASRDebug.enabled {
             var finalMax: Float = -Float.infinity
             var finalMin: Float = Float.infinity
