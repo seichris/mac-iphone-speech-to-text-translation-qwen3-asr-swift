@@ -354,7 +354,7 @@ public class QuantizedTextModel: Module {
 
         if Qwen3ASRDebug.enabled {
             let inputFlat = hiddenStates.flattened()
-            Qwen3ASRDebug.log("DEBUG TextDecoder: Input embeds - mean: \(mean(inputFlat).item(Float.self)), std: \(sqrt(variance(inputFlat)).item(Float.self))")
+            Qwen3ASRDebug.log("TextDecoder: Input embeds - mean: \(mean(inputFlat).item(Float.self)), std: \(sqrt(variance(inputFlat)).item(Float.self))")
         }
 
         // Apply decoder layers
@@ -367,7 +367,7 @@ public class QuantizedTextModel: Module {
 
             if Qwen3ASRDebug.enabled && (i == 0 || i == 27) {
                 let layerFlat = hiddenStates.flattened()
-                Qwen3ASRDebug.log("DEBUG TextDecoder: After layer \(i) - mean: \(mean(layerFlat).item(Float.self)), std: \(sqrt(variance(layerFlat)).item(Float.self))")
+                Qwen3ASRDebug.log("TextDecoder: After layer \(i) - mean: \(mean(layerFlat).item(Float.self)), std: \(sqrt(variance(layerFlat)).item(Float.self))")
             }
         }
 
@@ -375,7 +375,7 @@ public class QuantizedTextModel: Module {
         hiddenStates = norm(hiddenStates)
         if Qwen3ASRDebug.enabled {
             let normFlat = hiddenStates.flattened()
-            Qwen3ASRDebug.log("DEBUG TextDecoder: After final norm - mean: \(mean(normFlat).item(Float.self)), std: \(sqrt(variance(normFlat)).item(Float.self))")
+            Qwen3ASRDebug.log("TextDecoder: After final norm - mean: \(mean(normFlat).item(Float.self)), std: \(sqrt(variance(normFlat)).item(Float.self))")
         }
 
         return (hiddenStates, newCache)

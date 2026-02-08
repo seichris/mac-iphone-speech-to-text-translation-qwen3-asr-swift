@@ -213,20 +213,17 @@ public class WhisperFeatureExtractor {
             fatalError("Mel filterbank not initialized")
         }
 
-        // Debug: check magnitude (power spectrum) stats
+        // Debug: check magnitude (power spectrum) and filterbank stats
         if Qwen3ASRDebug.enabled {
             var magMean: Float = 0
             var magMax: Float = -Float.infinity
             vDSP_meanv(magnitude, 1, &magMean, vDSP_Length(magnitude.count))
             vDSP_maxv(magnitude, 1, &magMax, vDSP_Length(magnitude.count))
-            Qwen3ASRDebug.log("DEBUG FeatureExtractor: Power spectrum - mean: \(magMean), max: \(magMax)")
-        }
+            Qwen3ASRDebug.log("FeatureExtractor: Power spectrum - mean: \(magMean), max: \(magMax)")
 
-        // Debug: check filterbank stats
-        if Qwen3ASRDebug.enabled {
             var fbMax: Float = -Float.infinity
             vDSP_maxv(filterbank, 1, &fbMax, vDSP_Length(filterbank.count))
-            Qwen3ASRDebug.log("DEBUG FeatureExtractor: Filterbank max: \(fbMax)")
+            Qwen3ASRDebug.log("FeatureExtractor: Filterbank max: \(fbMax)")
         }
 
         var melSpec = [Float](repeating: 0, count: nFrames * nMels)
@@ -248,7 +245,7 @@ public class WhisperFeatureExtractor {
             var melMax: Float = -Float.infinity
             vDSP_meanv(melSpec, 1, &melMean, vDSP_Length(melSpec.count))
             vDSP_maxv(melSpec, 1, &melMax, vDSP_Length(melSpec.count))
-            Qwen3ASRDebug.log("DEBUG FeatureExtractor: Mel spec (before log) - mean: \(melMean), max: \(melMax)")
+            Qwen3ASRDebug.log("FeatureExtractor: Mel spec (before log) - mean: \(melMean), max: \(melMax)")
         }
 
         // Apply log10-mel transformation with small epsilon (Whisper-style)
@@ -263,7 +260,7 @@ public class WhisperFeatureExtractor {
             var logMin: Float = Float.infinity
             vDSP_maxv(melSpec, 1, &logMax, vDSP_Length(melSpec.count))
             vDSP_minv(melSpec, 1, &logMin, vDSP_Length(melSpec.count))
-            Qwen3ASRDebug.log("DEBUG FeatureExtractor: log10 mel - min: \(logMin), max: \(logMax)")
+            Qwen3ASRDebug.log("FeatureExtractor: log10 mel - min: \(logMin), max: \(logMax)")
         }
 
         // Whisper-style normalization:
@@ -282,7 +279,7 @@ public class WhisperFeatureExtractor {
         if Qwen3ASRDebug.enabled {
             var clippedMin: Float = Float.infinity
             vDSP_minv(melSpec, 1, &clippedMin, vDSP_Length(melSpec.count))
-            Qwen3ASRDebug.log("DEBUG FeatureExtractor: After clipping - min: \(clippedMin), max: \(maxVal)")
+            Qwen3ASRDebug.log("FeatureExtractor: After clipping - min: \(clippedMin), max: \(maxVal)")
         }
 
         // Normalize: (x + 4.0) / 4.0
@@ -296,14 +293,14 @@ public class WhisperFeatureExtractor {
             var finalMin: Float = Float.infinity
             vDSP_maxv(melSpec, 1, &finalMax, vDSP_Length(melSpec.count))
             vDSP_minv(melSpec, 1, &finalMin, vDSP_Length(melSpec.count))
-            Qwen3ASRDebug.log("DEBUG FeatureExtractor: Final normalized - min: \(finalMin), max: \(finalMax)")
+            Qwen3ASRDebug.log("FeatureExtractor: Final normalized - min: \(finalMin), max: \(finalMax)")
         }
 
         // CRITICAL: HuggingFace WhisperFeatureExtractor removes the last frame: log_spec[:, :-1]
         // This is needed to match the exact frame count that the model expects
         var trimmedFrames = nFrames - 1  // Remove last frame
         var trimmedMelSpec = Array(melSpec.prefix(trimmedFrames * nMels))
-        Qwen3ASRDebug.log("DEBUG FeatureExtractor: Trimmed last frame: \(nFrames) -> \(trimmedFrames)")
+        Qwen3ASRDebug.log("FeatureExtractor: Trimmed last frame: \(nFrames) -> \(trimmedFrames)")
 
         // DON'T pad to 3000 frames - let the audio encoder handle the actual length
         // The Python reference only pads minimally for chunk alignment, not to a fixed length
@@ -313,9 +310,9 @@ public class WhisperFeatureExtractor {
         if trimmedFrames > maxFrames {
             // Truncate to 3000 frames if longer than 30 seconds
             finalMelSpec = Array(trimmedMelSpec.prefix(maxFrames * nMels))
-            Qwen3ASRDebug.log("DEBUG FeatureExtractor: Truncated from \(trimmedFrames) to \(maxFrames) frames")
+            Qwen3ASRDebug.log("FeatureExtractor: Truncated from \(trimmedFrames) to \(maxFrames) frames")
         } else {
-            Qwen3ASRDebug.log("DEBUG FeatureExtractor: Using actual \(trimmedFrames) frames (no padding)")
+            Qwen3ASRDebug.log("FeatureExtractor: Using actual \(trimmedFrames) frames (no padding)")
         }
 
         let finalFrames = finalMelSpec.count / nMels
