@@ -13,6 +13,32 @@ If you see: "missing Metal Toolchain", run:
 EOF
 }
 
+resolve_tool() {
+  local name="$1"
+  local metal_bin=""
+  local dir=""
+
+  if path="$(xcrun -sdk macosx -find "$name" 2>/dev/null)"; then
+    echo "$path"
+    return 0
+  fi
+
+  # On some systems, xcrun finds `metal` via the MetalToolchain but fails to
+  # locate `metallib`. Fall back to the toolchain bin dir next to `metal`.
+  if [[ "$name" == "metallib" ]]; then
+    metal_bin="$(xcrun -sdk macosx -find metal 2>/dev/null || true)"
+    if [[ -n "$metal_bin" ]]; then
+      dir="$(dirname "$metal_bin")"
+      if [[ -x "$dir/metallib" ]]; then
+        echo "$dir/metallib"
+        return 0
+      fi
+    fi
+  fi
+
+  return 1
+}
+
 CONFIG="${1:-release}"
 if [[ "$CONFIG" != "release" && "$CONFIG" != "debug" ]]; then
   usage
@@ -38,11 +64,16 @@ if [[ -z "${OUT_DIR:-}" || ! -d "$OUT_DIR" ]]; then
 fi
 
 MLX_SWIFT_DIR="$BUILD_DIR/checkouts/mlx-swift"
+MLX_DIR="$MLX_SWIFT_DIR/Source/Cmlx/mlx"
 KERNELS_DIR="$MLX_SWIFT_DIR/Source/Cmlx/mlx/mlx/backend/metal/kernels"
 
 if [[ ! -d "$KERNELS_DIR" ]]; then
   echo "error: MLX kernels dir not found at $KERNELS_DIR" >&2
   echo "hint: ensure dependencies are fetched (swift build) and mlx-swift checkout exists" >&2
+  exit 1
+fi
+if [[ ! -d "$MLX_DIR/mlx" ]]; then
+  echo "error: MLX include root not found at $MLX_DIR/mlx" >&2
   exit 1
 fi
 
@@ -70,13 +101,26 @@ METAL_FLAGS=(
   -Wno-c++20-extensions
 )
 
+METAL_BIN="$(resolve_tool metal || true)"
+METALLIB_BIN="$(resolve_tool metallib || true)"
+if [[ -z "$METAL_BIN" ]]; then
+  echo "error: unable to locate the Metal compiler (metal)" >&2
+  echo "run: xcodebuild -downloadComponent MetalToolchain" >&2
+  exit 1
+fi
+if [[ -z "$METALLIB_BIN" ]]; then
+  echo "error: unable to locate metallib" >&2
+  echo "run: xcodebuild -downloadComponent MetalToolchain" >&2
+  exit 1
+fi
+
 echo "Compiling ${#METAL_SRCS[@]} Metal sources..."
 for SRC in "${METAL_SRCS[@]}"; do
   REL="${SRC#"$KERNELS_DIR/"}"
   KEY="$(printf '%s' "$REL" | shasum -a 256 | awk '{print $1}' | cut -c1-16)"
   OUT_AIR="$TMP/$KEY.air"
 
-  if ! xcrun -sdk macosx metal "${METAL_FLAGS[@]}" -c "$SRC" -I"$KERNELS_DIR" -o "$OUT_AIR" 2>"$TMP/metal.err"; then
+  if ! "$METAL_BIN" "${METAL_FLAGS[@]}" -c "$SRC" -I"$MLX_DIR" -I"$KERNELS_DIR" -o "$OUT_AIR" 2>"$TMP/metal.err"; then
     if grep -q "missing Metal Toolchain" "$TMP/metal.err" 2>/dev/null; then
       echo "error: Xcode Metal Toolchain is missing." >&2
       echo "run: xcodebuild -downloadComponent MetalToolchain" >&2
@@ -89,6 +133,6 @@ done
 
 OUT_METALLIB="$OUT_DIR/mlx.metallib"
 echo "Linking mlx.metallib -> $OUT_METALLIB"
-xcrun -sdk macosx metallib "${AIR_FILES[@]}" -o "$OUT_METALLIB"
+"$METALLIB_BIN" "${AIR_FILES[@]}" -o "$OUT_METALLIB"
 
 echo "OK: wrote $OUT_METALLIB"
