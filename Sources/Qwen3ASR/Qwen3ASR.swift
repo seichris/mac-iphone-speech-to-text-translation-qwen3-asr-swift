@@ -393,8 +393,57 @@ public extension Qwen3ASRModel {
         return model
     }
 
+    // MARK: Cache Management
+
+    /// Returns the on-disk cache directory for a given modelId.
+    ///
+    /// Note: This does not create the directory. `fromPretrained` will create it as needed.
+    static func cacheDirectoryURL(modelId: String) throws -> URL {
+        try _cacheDirectoryURL(for: modelId, create: false)
+    }
+
+    /// Returns the total size (in bytes) of the cached files for `modelId`.
+    static func cachedModelSizeBytes(modelId: String) throws -> Int64 {
+        let dir = try _cacheDirectoryURL(for: modelId, create: false)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return 0 }
+        return try _directorySizeBytes(dir)
+    }
+
+    /// Deletes all cached files for `modelId` (config/tokenizer + weights).
+    static func deleteCachedModel(modelId: String) throws {
+        let dir = try _cacheDirectoryURL(for: modelId, create: false)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return }
+        try FileManager.default.removeItem(at: dir)
+    }
+
+    /// Deletes the entire `qwen3-asr/` cache root (all models).
+    static func deleteAllCachedModels() throws {
+        let base = try _baseCacheDirectoryURL(create: false)
+        let root = base.appendingPathComponent("qwen3-asr", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: root.path) else { return }
+        try FileManager.default.removeItem(at: root)
+    }
+
     private static func getCacheDirectory(for modelId: String) throws -> URL {
+        try _cacheDirectoryURL(for: modelId, create: true)
+    }
+
+    private static func _cacheDirectoryURL(for modelId: String, create: Bool) throws -> URL {
         let cacheKey = _sanitizedCacheKey(for: modelId)
+        let fm = FileManager.default
+
+        let baseCacheDir = try _baseCacheDirectoryURL(create: create)
+        let cacheDir = baseCacheDir
+            .appendingPathComponent("qwen3-asr", isDirectory: true)
+            .appendingPathComponent(cacheKey, isDirectory: true)
+
+        if create {
+            try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        }
+        return cacheDir
+    }
+
+    private static func _baseCacheDirectoryURL(create: Bool) throws -> URL {
         let fm = FileManager.default
 
         // Allow callers (and CI/sandboxes) to override the cache location.
@@ -407,12 +456,24 @@ public extension Qwen3ASRModel {
             baseCacheDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
         }
 
-        let cacheDir = baseCacheDir
-            .appendingPathComponent("qwen3-asr", isDirectory: true)
-            .appendingPathComponent(cacheKey, isDirectory: true)
+        if create {
+            try fm.createDirectory(at: baseCacheDir, withIntermediateDirectories: true)
+        }
+        return baseCacheDir
+    }
 
-        try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        return cacheDir
+    private static func _directorySizeBytes(_ directory: URL) throws -> Int64 {
+        let fm = FileManager.default
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
+        guard let e = fm.enumerator(at: directory, includingPropertiesForKeys: Array(keys)) else { return 0 }
+
+        var total: Int64 = 0
+        for case let url as URL in e {
+            let rv = try url.resourceValues(forKeys: keys)
+            guard rv.isRegularFile == true else { continue }
+            total += Int64(rv.fileSize ?? 0)
+        }
+        return total
     }
 
     /// Convert an arbitrary modelId into a single, safe path component for on-disk caching.

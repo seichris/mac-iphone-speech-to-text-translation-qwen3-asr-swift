@@ -13,6 +13,7 @@
 		B80000000000000000000004 /* SupportedLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* SupportedLanguage.swift */; };
 		B80000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* Assets.xcassets */; };
 		B80000000000000000000006 /* CopyableTextBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* CopyableTextBox.swift */; };
+		B80000000000000000000007 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* SettingsView.swift */; };
 		D30000000000000000000001 /* Qwen3ASR in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000001 /* Qwen3ASR */; };
 		C80000000000000000000001 /* Qwen3TranslateAppApp.swift in Sources (macOS) */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* Qwen3TranslateAppApp.swift */; };
 		C80000000000000000000002 /* ContentView.swift in Sources (macOS) */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ContentView.swift */; };
@@ -20,6 +21,7 @@
 		C80000000000000000000004 /* SupportedLanguage.swift in Sources (macOS) */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* SupportedLanguage.swift */; };
 		C80000000000000000000005 /* Assets.xcassets in Resources (macOS) */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* Assets.xcassets */; };
 		C80000000000000000000006 /* CopyableTextBox.swift in Sources (macOS) */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* CopyableTextBox.swift */; };
+		C80000000000000000000007 /* SettingsView.swift in Sources (macOS) */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* SettingsView.swift */; };
 		D30000000000000000000002 /* Qwen3ASR in Frameworks (macOS) */ = {isa = PBXBuildFile; productRef = D20000000000000000000001 /* Qwen3ASR */; };
 /* End PBXBuildFile section */
 
@@ -32,6 +34,7 @@
 		B10000000000000000000007 /* Info-macOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-macOS.plist"; sourceTree = "<group>"; };
 		B10000000000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10000000000000000000008 /* CopyableTextBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyableTextBox.swift; sourceTree = "<group>"; };
+		B10000000000000000000009 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B70000000000000000000001 /* Qwen3TranslateApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Qwen3TranslateApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B70000000000000000000002 /* Qwen3TranslateApp-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Qwen3TranslateApp-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -78,6 +81,7 @@
 			children = (
 				B10000000000000000000001 /* Qwen3TranslateAppApp.swift */,
 				B10000000000000000000002 /* ContentView.swift */,
+				B10000000000000000000009 /* SettingsView.swift */,
 				B10000000000000000000008 /* CopyableTextBox.swift */,
 				B10000000000000000000003 /* LiveTranslateViewModel.swift */,
 				B10000000000000000000004 /* SupportedLanguage.swift */,
@@ -187,6 +191,7 @@
 			files = (
 				B80000000000000000000001 /* Qwen3TranslateAppApp.swift in Sources */,
 				B80000000000000000000002 /* ContentView.swift in Sources */,
+				B80000000000000000000007 /* SettingsView.swift in Sources */,
 				B80000000000000000000006 /* CopyableTextBox.swift in Sources */,
 				B80000000000000000000003 /* LiveTranslateViewModel.swift in Sources */,
 				B80000000000000000000004 /* SupportedLanguage.swift in Sources */,
@@ -199,6 +204,7 @@
 			files = (
 				C80000000000000000000001 /* Qwen3TranslateAppApp.swift in Sources (macOS) */,
 				C80000000000000000000002 /* ContentView.swift in Sources (macOS) */,
+				C80000000000000000000007 /* SettingsView.swift in Sources (macOS) */,
 				C80000000000000000000006 /* CopyableTextBox.swift in Sources (macOS) */,
 				C80000000000000000000003 /* LiveTranslateViewModel.swift in Sources (macOS) */,
 				C80000000000000000000004 /* SupportedLanguage.swift in Sources (macOS) */,

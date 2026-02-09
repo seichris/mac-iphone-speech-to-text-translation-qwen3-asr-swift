@@ -14,6 +14,14 @@ final class Qwen3ASRIntegrationTests: XCTestCase {
         print("Running Qwen3-ASR integration tests")
     }
 
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        let shouldRun = ProcessInfo.processInfo.environment["QWEN3_ASR_RUN_INTEGRATION_TESTS"] == "1"
+        if !shouldRun {
+            throw XCTSkip("Skipping integration tests by default. Set QWEN3_ASR_RUN_INTEGRATION_TESTS=1 to enable.")
+        }
+    }
+
     // MARK: - Model Loading Test
 
     func testModelLoading() async throws {
