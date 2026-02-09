@@ -8,25 +8,42 @@ final class Qwen3ASRTests: XCTestCase {
         try super.setUpWithError()
 
         #if os(macOS)
-        // MLX Swift requires `mlx.metallib` to be present next to SwiftPM outputs.
-        // Some Xcode installs don't ship the Metal toolchain; see AGENTS.md.
+        // MLX Swift requires `mlx.metallib` to be present next to the running executable.
+        // The helper script writes it to `.build/{debug|release}/mlx.metallib`, so copy it into
+        // the test runner's executable directory if needed.
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // Qwen3ASRTests/
             .deletingLastPathComponent() // Tests/
             .deletingLastPathComponent() // repo root
 
         #if DEBUG
-        let candidates = [
-            root.appendingPathComponent(".build/debug/mlx.metallib").path,
+        let sourceCandidates = [
+            root.appendingPathComponent(".build/debug/mlx.metallib"),
         ]
         #else
-        let candidates = [
-            root.appendingPathComponent(".build/release/mlx.metallib").path,
+        let sourceCandidates = [
+            root.appendingPathComponent(".build/release/mlx.metallib"),
         ]
         #endif
 
-        let hasMetallib = candidates.contains { FileManager.default.fileExists(atPath: $0) }
-        if !hasMetallib {
+        let fm = FileManager.default
+        let src = sourceCandidates.first(where: { fm.fileExists(atPath: $0.path) })
+
+        guard let exeURL = Bundle.main.executableURL else {
+            throw XCTSkip("Unable to locate test runner executable URL; skipping MLX-dependent tests.")
+        }
+        let exeDir = exeURL.deletingLastPathComponent()
+        let dst = exeDir.appendingPathComponent("mlx.metallib")
+
+        if !fm.fileExists(atPath: dst.path), let src {
+            do {
+                try fm.copyItem(at: src, to: dst)
+            } catch {
+                // If another test/process raced us, ignore copy errors and fall through to existence check.
+            }
+        }
+
+        if !fm.fileExists(atPath: dst.path) {
             #if DEBUG
             throw XCTSkip("MLX metallib not found for Debug tests. Build it with: `swift build -c debug --disable-sandbox` then `./scripts/build_mlx_metallib.sh debug`.")
             #else

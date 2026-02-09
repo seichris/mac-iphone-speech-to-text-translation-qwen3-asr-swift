@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 import MLX
 import MLXNN
 import MLXFast
@@ -364,33 +365,53 @@ public extension Qwen3ASRModel {
         // Create model with default config
         let model = Qwen3ASRModel()
 
-        // Load tokenizer from vocab.json
-        let vocabPath = cacheDir.appendingPathComponent("vocab.json")
-        if FileManager.default.fileExists(atPath: vocabPath.path) {
-            let tokenizer = Qwen3Tokenizer()
-            try tokenizer.load(from: vocabPath)
-            if Qwen3ASRDebug.enabled {
-                tokenizer.debugTokenMappings()  // verify token IDs
+        // Do CPU-heavy synchronous work off the caller's executor (important for iOS UI responsiveness).
+        try await runBlocking {
+            // Load tokenizer from vocab.json
+            let vocabPath = cacheDir.appendingPathComponent("vocab.json")
+            if FileManager.default.fileExists(atPath: vocabPath.path) {
+                let tokenizer = Qwen3Tokenizer()
+                try tokenizer.load(from: vocabPath)
+                if Qwen3ASRDebug.enabled {
+                    tokenizer.debugTokenMappings()  // verify token IDs
+                }
+                model.setTokenizer(tokenizer)
             }
-            model.setTokenizer(tokenizer)
         }
 
         progressHandler?(0.6, "Loading audio encoder weights...")
 
-        // Load audio encoder weights
-        try WeightLoader.loadWeights(into: model.audioEncoder, from: cacheDir)
+        // Load audio encoder weights (synchronous / large IO)
+        try await runBlocking {
+            try WeightLoader.loadWeights(into: model.audioEncoder, from: cacheDir)
+        }
 
         progressHandler?(0.75, "Loading text decoder weights...")
 
         // Initialize and load text decoder
         model.initializeTextDecoder()
         if let textDecoder = model.textDecoder {
-            try WeightLoader.loadTextDecoderWeights(into: textDecoder, from: cacheDir)
+            try await runBlocking {
+                try WeightLoader.loadTextDecoderWeights(into: textDecoder, from: cacheDir)
+            }
         }
 
         progressHandler?(1.0, "Ready")
 
         return model
+    }
+
+    private static func runBlocking(_ work: @escaping () throws -> Void) async throws {
+        try await withCheckedThrowingContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try work()
+                    cont.resume(returning: ())
+                } catch {
+                    cont.resume(throwing: error)
+                }
+            }
+        }
     }
 
     // MARK: Cache Management

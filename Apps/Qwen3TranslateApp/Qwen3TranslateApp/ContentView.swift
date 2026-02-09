@@ -6,9 +6,34 @@ import Translation
 struct ContentView: View {
     @StateObject private var vm = LiveTranslateViewModel()
 
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
+
+    private struct RunTaskID: Equatable {
+        var isRunning: Bool
+        var provider: TranslationProvider
+    }
+
+    private enum TranslationProvider: String, CaseIterable, Identifiable, Equatable {
+        case apple
+        case googleCloud
+        case off
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .apple: return "Apple"
+            case .googleCloud: return "Google Cloud"
+            case .off: return "Off"
+            }
+        }
+    }
+
     @State private var from = SupportedLanguage.chinese
     @State private var to = SupportedLanguage.english
-    @State private var useAppleTranslation = true
+    @State private var translationProvider: TranslationProvider
     @State private var showSettings = false
 
     // Keeping this in state makes `.translationTask` restart when languages change.
@@ -19,6 +44,13 @@ struct ContentView: View {
 
     private let modelIdDefault = "mlx-community/Qwen3-ASR-0.6B-4bit"
 
+    init() {
+        let key = ProcessInfo.processInfo.environment["QWEN3_ASR_GOOGLE_TRANSLATE_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultProvider: TranslationProvider = (key?.isEmpty == false) ? .googleCloud : .apple
+        _translationProvider = State(initialValue: defaultProvider)
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
@@ -26,8 +58,12 @@ struct ContentView: View {
                 transcriptPane
                 micBar
             }
-            .padding()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .navigationTitle("Live Translate")
+            #if os(iOS)
+            .toolbarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .topBarTrailing) { settingsButton }
@@ -47,7 +83,10 @@ struct ContentView: View {
             rebuildTranslationConfig()
             if vm.isRunning { vm.requestStop() }
         }
-        .translationTask((vm.isRunning && useAppleTranslation) ? translationConfig : nil) { session in
+        .onChange(of: translationProvider) { _, _ in
+            if vm.isRunning { vm.requestStop() }
+        }
+        .translationTask((vm.isRunning && translationProvider == .apple) ? translationConfig : nil) { session in
             // Runs while active; cancelled automatically when `translationConfig` becomes nil.
             await vm.run(
                 translationSession: session,
@@ -56,9 +95,17 @@ struct ContentView: View {
                 to: to
             )
         }
-        .task(id: (vm.isRunning && !useAppleTranslation)) {
-            guard vm.isRunning, !useAppleTranslation else { return }
-            await vm.runNoTranslation(modelId: modelIdDefault, from: from)
+        .task(id: RunTaskID(isRunning: vm.isRunning, provider: translationProvider)) {
+            guard vm.isRunning else { return }
+            switch translationProvider {
+            case .off:
+                await vm.runNoTranslation(modelId: modelIdDefault, from: from)
+            case .googleCloud:
+                await vm.runGoogleTranslation(modelId: modelIdDefault, from: from, to: to)
+            case .apple:
+                // Handled by `.translationTask`.
+                break
+            }
         }
     }
 
@@ -73,43 +120,95 @@ struct ContentView: View {
     }
 
     private var languageBar: some View {
-        HStack(spacing: 12) {
-            Picker("From", selection: $from) {
-                ForEach(SupportedLanguage.all) { lang in
-                    Text(lang.displayName).tag(lang)
+        Group {
+            #if os(iOS)
+            if horizontalSizeClass == .compact {
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        fromPicker
+                        swapButton
+                        toPicker
+                    }
+                    HStack(spacing: 10) {
+                        providerPicker
+                        Spacer(minLength: 0)
+                    }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    fromPicker
+                    swapButton
+                    toPicker
+                    providerPicker
                 }
             }
-            .pickerStyle(.menu)
-            .disabled(vm.isRunning)
-
-            Button {
-                let tmp = from
-                from = to
-                to = tmp
-            } label: {
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.system(size: 18, weight: .semibold))
+            #else
+            HStack(spacing: 12) {
+                fromPicker
+                swapButton
+                toPicker
+                providerPicker
             }
-            .buttonStyle(.bordered)
-            .disabled(vm.isRunning)
-
-            Picker("To", selection: $to) {
-                ForEach(SupportedLanguage.all) { lang in
-                    Text(lang.displayName).tag(lang)
-                }
-            }
-            .pickerStyle(.menu)
-            .disabled(vm.isRunning)
-
-            Button {
-                useAppleTranslation.toggle()
-            } label: {
-                Text(useAppleTranslation ? "Apple Translate: On" : "Apple Translate: Off")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .buttonStyle(.bordered)
-            .disabled(vm.isRunning)
+            #endif
         }
+    }
+
+    private var fromPicker: some View {
+        Picker("From", selection: $from) {
+            ForEach(SupportedLanguage.all) { lang in
+                Text(lang.displayName)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .tag(lang)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(vm.isRunning)
+    }
+
+    private var toPicker: some View {
+        Picker("To", selection: $to) {
+            ForEach(SupportedLanguage.all) { lang in
+                Text(lang.displayName)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .tag(lang)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(vm.isRunning)
+    }
+
+    private var providerPicker: some View {
+        Picker("Translate", selection: $translationProvider) {
+            ForEach(TranslationProvider.allCases) { p in
+                Text(p.displayName)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .tag(p)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(vm.isRunning)
+    }
+
+    private var swapButton: some View {
+        Button {
+            let tmp = from
+            from = to
+            to = tmp
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 18, weight: .semibold))
+        }
+        .buttonStyle(.bordered)
+        .disabled(vm.isRunning)
     }
 
     private var transcriptPane: some View {
@@ -134,7 +233,7 @@ struct ContentView: View {
                     ForEach(vm.segments) { seg in
                         VStack(alignment: .leading, spacing: 6) {
                             CopyableTextBox(text: seg.transcript)
-                            if useAppleTranslation, let t = seg.translation, !t.isEmpty {
+                            if translationProvider != .off, let t = seg.translation, !t.isEmpty {
                                 CopyableTextBox(text: t)
                             }
                         }
