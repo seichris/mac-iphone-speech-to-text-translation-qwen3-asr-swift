@@ -6,7 +6,7 @@ import Translation
 struct ContentView: View {
     @StateObject private var vm = LiveTranslateViewModel()
 
-    private enum TranslationProvider: String, CaseIterable, Identifiable {
+    private enum TranslationProvider: String, CaseIterable, Identifiable, Equatable {
         case apple
         case googleCloud
         case off
