@@ -7,6 +7,30 @@ import Metal
 
 // MARK: - Realtime Command
 
+private enum TranslationProvider: String {
+    case auto
+    case model
+    case google
+    case off
+}
+
+private actor RealtimeEventPrinter {
+    let format: OutputFormat
+
+    init(format: OutputFormat) {
+        self.format = format
+    }
+
+    func emit(_ event: RealtimeTranslationEvent) {
+        switch format {
+        case .plain:
+            printPlain(event)
+        case .jsonl:
+            printJSONL(event)
+        }
+    }
+}
+
 private func runRealtime(
     targetLanguage: String,
     sourceLanguage: String?,
@@ -15,6 +39,7 @@ private func runRealtime(
     stepMs: Int,
     enableVAD: Bool,
     enableTranslation: Bool,
+    translationProvider: TranslationProvider,
     format: OutputFormat
 ) async throws {
     print("Loading model: \(modelId)")
@@ -26,6 +51,21 @@ private func runRealtime(
     // Normalize CLI language identifiers (e.g. "en" -> "English", "cn" -> "Chinese").
     let normalizedTo = Qwen3ASRLanguage.normalize(targetLanguage)
     let normalizedFrom = Qwen3ASRLanguage.normalizeOptional(sourceLanguage)
+    let googleTo = Qwen3ASRLanguage.googleCode(targetLanguage)
+    let googleFrom = Qwen3ASRLanguage.googleCodeOptional(sourceLanguage)
+
+    let env = ProcessInfo.processInfo.environment
+    let hasGoogleKey = (env["QWEN3_ASR_GOOGLE_TRANSLATE_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+
+    let provider: TranslationProvider = {
+        switch translationProvider {
+        case .auto:
+            // Prefer Google when configured so translation doesn't consume MLX compute.
+            return hasGoogleKey ? .google : .model
+        case .model, .google, .off:
+            return translationProvider
+        }
+    }()
 
     print("Starting realtime transcription...")
     print("Target language: \(normalizedTo)")
@@ -33,13 +73,15 @@ private func runRealtime(
     print("Window: \(windowSeconds)s, Step: \(stepMs)ms")
     print("Press Ctrl+C to stop\n")
 
+    let printer = RealtimeEventPrinter(format: format)
+
     let options = RealtimeTranslationOptions(
         targetLanguage: normalizedTo,
         sourceLanguage: normalizedFrom,
         windowSeconds: windowSeconds,
         stepMs: stepMs,
         enableVAD: enableVAD,
-        enableTranslation: enableTranslation
+        enableTranslation: (enableTranslation && provider == .model)
     )
 
     let audioSource = MicrophoneAudioSource(frameSizeMs: 20)
@@ -49,11 +91,53 @@ private func runRealtime(
     )
 
     for await event in stream {
-        switch format {
-        case .plain:
-            printPlain(event)
-        case .jsonl:
-            printJSONL(event)
+        await printer.emit(event)
+
+        guard enableTranslation, provider == .google else { continue }
+        guard event.kind == .final else { continue }
+
+        let src = event.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !src.isEmpty else { continue }
+
+        guard let apiKey = env["QWEN3_ASR_GOOGLE_TRANSLATE_API_KEY"],
+              !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            await printer.emit(.init(
+                kind: .metrics,
+                transcript: "",
+                translation: nil,
+                isStable: true,
+                metadata: ["error": "Missing QWEN3_ASR_GOOGLE_TRANSLATE_API_KEY (required for Google translation)."]
+            ))
+            continue
+        }
+
+        // Translate asynchronously so we keep printing partials smoothly.
+        Task {
+            do {
+                let translated = try await GoogleCloudTranslation.translate(
+                    src,
+                    apiKey: apiKey,
+                    sourceLanguage: googleFrom,
+                    targetLanguage: googleTo
+                )
+                let cleaned = translated.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty else { return }
+                await printer.emit(.init(
+                    kind: .translation,
+                    transcript: src,
+                    translation: cleaned,
+                    isStable: true
+                ))
+            } catch {
+                await printer.emit(.init(
+                    kind: .metrics,
+                    transcript: "",
+                    translation: nil,
+                    isStable: true,
+                    metadata: ["error": "Google translation failed: \(String(describing: error))"]
+                ))
+            }
         }
     }
 }
@@ -170,6 +254,7 @@ private struct Arguments {
             stepMs: Int,
             enableVAD: Bool,
             enableTranslation: Bool,
+            translationProvider: TranslationProvider,
             format: OutputFormat
         )
     }
@@ -208,6 +293,7 @@ private func parseArguments() -> Arguments? {
         var stepMs: Int = 500
         var enableVAD: Bool = true
         var enableTranslation: Bool = true
+        var translationProvider: TranslationProvider = .auto
         var format: OutputFormat = .plain
 
         var i = 2
@@ -251,7 +337,21 @@ private func parseArguments() -> Arguments? {
                 i += 1
             case "--no-translate":
                 enableTranslation = false
+                translationProvider = .off
                 i += 1
+            case "--translate-provider":
+                if i + 1 < args.count {
+                    let raw = args[i + 1].lowercased()
+                    guard let p = TranslationProvider(rawValue: raw) else {
+                        print("Error: --translate-provider must be one of: auto, model, google, off")
+                        return nil
+                    }
+                    translationProvider = p
+                    i += 2
+                } else {
+                    print("Error: --translate-provider requires a value (auto|model|google|off)")
+                    return nil
+                }
             case "--jsonl":
                 format = .jsonl
                 i += 1
@@ -273,6 +373,7 @@ private func parseArguments() -> Arguments? {
                 stepMs: stepMs,
                 enableVAD: enableVAD,
                 enableTranslation: enableTranslation,
+                translationProvider: translationProvider,
                 format: format
             ),
             modelId: modelId,
@@ -313,6 +414,7 @@ private func printUsage() {
     print("  --step <milliseconds>     Update interval (default: 500)")
     print("  --no-vad                  Disable voice activity detection")
     print("  --no-translate            Disable translation (transcription only)")
+    print("  --translate-provider <p>  Translation provider: auto|model|google|off (default: auto)")
     print("  --jsonl                   Output in JSONL format")
     print("")
     print("Language values:")
@@ -322,6 +424,7 @@ private func printUsage() {
     print("Environment variables:")
     print("  QWEN3_ASR_MODEL           Model ID (default: mlx-community/Qwen3-ASR-0.6B-4bit)")
     print("  QWEN3_ASR_DEVICE          Set to 'cpu' to force CPU mode")
+    print("  QWEN3_ASR_GOOGLE_TRANSLATE_API_KEY  Google Translate API key (used when --translate-provider google, or auto)")
     print("")
     print("Examples:")
     print("  qwen3-asr-cli transcribe audio.wav")
@@ -339,6 +442,7 @@ private func printRealtimeHelp() {
     print("  --step <ms>      Update interval in milliseconds (default: 500)")
     print("  --no-vad         Disable voice activity detection")
     print("  --no-translate   Transcribe only, no translation")
+    print("  --translate-provider <p>  auto|model|google|off (default: auto)")
     print("  --jsonl          Output structured JSONL")
     print("")
     print("Language values:")
@@ -366,7 +470,7 @@ Task {
                 try await runTranscribe(audioPath: audioPath, modelId: args.modelId)
             }
 
-        case .realtime(let targetLang, let sourceLang, let window, let step, let vad, let translate, let format):
+        case .realtime(let targetLang, let sourceLang, let window, let step, let vad, let translate, let provider, let format):
             if args.device == "cpu" {
                 try await Device.withDefaultDevice(.cpu) {
                     try await runRealtime(
@@ -377,6 +481,7 @@ Task {
                         stepMs: step,
                         enableVAD: vad,
                         enableTranslation: translate,
+                        translationProvider: provider,
                         format: format
                     )
                 }
@@ -389,6 +494,7 @@ Task {
                     stepMs: step,
                     enableVAD: vad,
                     enableTranslation: translate,
+                    translationProvider: provider,
                     format: format
                 )
             }
