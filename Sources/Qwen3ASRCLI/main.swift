@@ -166,7 +166,8 @@ private func runRealtime(
         enableTranslation: (enableTranslation && provider == .model)
     )
 
-    let audioSource = MicrophoneAudioSource(frameSizeMs: 20)
+    // Use enough buffering so slow inference doesn't drop mic frames on smaller devices/builds.
+    let audioSource = MicrophoneAudioSource(frameSizeMs: 20, bufferedFrames: 500)
     let stream = await model.realtimeTranslate(
         audioSource: audioSource,
         options: options

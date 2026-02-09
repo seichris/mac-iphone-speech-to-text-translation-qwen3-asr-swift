@@ -82,8 +82,8 @@ final class LiveTranslateViewModel: ObservableObject {
             log.info("runNoTranslation() start. from=\(from.displayName, privacy: .public)")
             let model = try await loadModelIfNeeded(modelId: modelId)
 
-            // Match CLI behavior: allow enough buffering so brief stalls (UI, translation) don't drop audio.
-            let audioSource = MicrophoneAudioSource(frameSizeMs: 20)
+            // iOS devices (especially in Debug) can fall behind realtime; use enough buffering to avoid dropping frames.
+            let audioSource = MicrophoneAudioSource(frameSizeMs: 20, bufferedFrames: 500)
             activeAudioSource = audioSource
             defer {
                 activeAudioSource = nil
@@ -154,7 +154,7 @@ final class LiveTranslateViewModel: ObservableObject {
 
             let model = try await loadModelIfNeeded(modelId: modelId)
 
-            let audioSource = MicrophoneAudioSource(frameSizeMs: 20)
+            let audioSource = MicrophoneAudioSource(frameSizeMs: 20, bufferedFrames: 500)
             activeAudioSource = audioSource
             defer {
                 activeAudioSource = nil
@@ -226,8 +226,7 @@ final class LiveTranslateViewModel: ObservableObject {
 
             let model = try await loadModelIfNeeded(modelId: modelId)
 
-            // Match CLI behavior: allow enough buffering so brief stalls (UI, translation) don't drop audio.
-            let audioSource = MicrophoneAudioSource(frameSizeMs: 20)
+            let audioSource = MicrophoneAudioSource(frameSizeMs: 20, bufferedFrames: 500)
             activeAudioSource = audioSource
             defer {
                 activeAudioSource = nil

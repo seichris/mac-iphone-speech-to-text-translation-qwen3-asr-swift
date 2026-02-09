@@ -28,7 +28,7 @@ public actor MicrophoneAudioSource: AudioFrameSource {
     private var pendingSamples: [Float] = []
     private var pendingStartIndex: Int = 0
     
-    public init(frameSizeMs: Double = 20.0, bufferedFrames: Int = 50) {
+    public init(frameSizeMs: Double = 20.0, bufferedFrames: Int = 500) {
         // Calculate frame size: sampleRate * frameSizeMs / 1000
         self.frameSize = Int(Double(sampleRate) * frameSizeMs / 1000.0)
         self.bufferedFrames = max(1, bufferedFrames)
