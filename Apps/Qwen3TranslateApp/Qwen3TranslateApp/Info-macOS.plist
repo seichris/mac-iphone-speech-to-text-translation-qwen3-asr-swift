@@ -8,6 +8,8 @@
   <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
   <key>CFBundleName</key>
   <string>$(PRODUCT_NAME)</string>
+  <key>CFBundleExecutable</key>
+  <string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>CFBundleShortVersionString</key>
@@ -17,4 +19,3 @@
   <string>Microphone access is required for realtime transcription.</string>
 </dict>
 </plist>
-

@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var from = SupportedLanguage.chinese
     @State private var to = SupportedLanguage.english
     @State private var useAppleTranslation = true
+    @State private var showSettings = false
 
     // Keeping this in state makes `.translationTask` restart when languages change.
     @State private var translationConfig: TranslationSession.Configuration? = .init(
@@ -27,6 +28,16 @@ struct ContentView: View {
             }
             .padding()
             .navigationTitle("Live Translate")
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .topBarTrailing) { settingsButton }
+                #else
+                ToolbarItem(placement: .automatic) { settingsButton }
+                #endif
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(vm: vm, modelId: modelIdDefault)
         }
         .onChange(of: from) { _, _ in
             rebuildTranslationConfig()
@@ -49,6 +60,16 @@ struct ContentView: View {
             guard vm.isRunning, !useAppleTranslation else { return }
             await vm.runNoTranslation(modelId: modelIdDefault, from: from)
         }
+    }
+
+    private var settingsButton: some View {
+        Button {
+            showSettings = true
+        } label: {
+            Image(systemName: "gearshape")
+        }
+        .disabled(vm.isRunning)
+        .accessibilityLabel("Settings")
     }
 
     private var languageBar: some View {

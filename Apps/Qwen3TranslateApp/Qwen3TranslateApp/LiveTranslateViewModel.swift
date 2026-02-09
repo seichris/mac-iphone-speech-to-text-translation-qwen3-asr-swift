@@ -40,6 +40,13 @@ final class LiveTranslateViewModel: ObservableObject {
         segments.removeAll()
     }
 
+    func unloadModel() {
+        model = nil
+        if !isRunning {
+            status = .idle
+        }
+    }
+
     func start() {
         log.info("start() requested")
         stopRequested = false

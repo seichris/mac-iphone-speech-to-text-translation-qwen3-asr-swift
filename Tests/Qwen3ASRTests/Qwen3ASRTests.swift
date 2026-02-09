@@ -4,6 +4,38 @@ import MLX
 
 final class Qwen3ASRTests: XCTestCase {
 
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+
+        #if os(macOS)
+        // MLX Swift requires `mlx.metallib` to be present next to SwiftPM outputs.
+        // Some Xcode installs don't ship the Metal toolchain; see AGENTS.md.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // Qwen3ASRTests/
+            .deletingLastPathComponent() // Tests/
+            .deletingLastPathComponent() // repo root
+
+        #if DEBUG
+        let candidates = [
+            root.appendingPathComponent(".build/debug/mlx.metallib").path,
+        ]
+        #else
+        let candidates = [
+            root.appendingPathComponent(".build/release/mlx.metallib").path,
+        ]
+        #endif
+
+        let hasMetallib = candidates.contains { FileManager.default.fileExists(atPath: $0) }
+        if !hasMetallib {
+            #if DEBUG
+            throw XCTSkip("MLX metallib not found for Debug tests. Build it with: `swift build -c debug --disable-sandbox` then `./scripts/build_mlx_metallib.sh debug`.")
+            #else
+            throw XCTSkip("MLX metallib not found for Release tests. Build it with: `swift build -c release --disable-sandbox` then `./scripts/build_mlx_metallib.sh release`.")
+            #endif
+        }
+        #endif
+    }
+
     func testAudioEncoderConfig() {
         let config = Qwen3AudioEncoderConfig.default
         XCTAssertEqual(config.dModel, 896)
