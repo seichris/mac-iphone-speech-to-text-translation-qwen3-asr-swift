@@ -16,14 +16,19 @@ private enum TranslationProvider: String {
 
 private actor RealtimeEventPrinter {
     let format: OutputFormat
+    let showPartials: Bool
 
-    init(format: OutputFormat) {
+    init(format: OutputFormat, showPartials: Bool) {
         self.format = format
+        self.showPartials = showPartials
     }
 
     func emit(_ event: RealtimeTranslationEvent) {
         switch format {
         case .plain:
+            if !showPartials, event.kind == .partial {
+                return
+            }
             printPlain(event)
         case .jsonl:
             printJSONL(event)
@@ -112,7 +117,8 @@ private func runRealtime(
     enableVAD: Bool,
     enableTranslation: Bool,
     translationProvider: TranslationProvider,
-    format: OutputFormat
+    format: OutputFormat,
+    showPartials: Bool
 ) async throws {
     print("Loading model: \(modelId)")
 
@@ -145,7 +151,7 @@ private func runRealtime(
     print("Window: \(windowSeconds)s, Step: \(stepMs)ms")
     print("Press Ctrl+C to stop\n")
 
-    let printer = RealtimeEventPrinter(format: format)
+    let printer = RealtimeEventPrinter(format: format, showPartials: showPartials)
 
     #if DEBUG
     await printer.emit(.init(
@@ -324,7 +330,8 @@ private struct Arguments {
             enableVAD: Bool,
             enableTranslation: Bool,
             translationProvider: TranslationProvider,
-            format: OutputFormat
+            format: OutputFormat,
+            showPartials: Bool
         )
     }
 }
@@ -364,6 +371,7 @@ private func parseArguments() -> Arguments? {
         var enableTranslation: Bool = true
         var translationProvider: TranslationProvider = .auto
         var format: OutputFormat = .plain
+        var showPartials: Bool = false
 
         var i = 2
         while i < args.count {
@@ -424,6 +432,9 @@ private func parseArguments() -> Arguments? {
             case "--jsonl":
                 format = .jsonl
                 i += 1
+            case "--show-partials", "--partials":
+                showPartials = true
+                i += 1
             case "--help":
                 printRealtimeHelp()
                 return nil
@@ -443,7 +454,8 @@ private func parseArguments() -> Arguments? {
                 enableVAD: enableVAD,
                 enableTranslation: enableTranslation,
                 translationProvider: translationProvider,
-                format: format
+                format: format,
+                showPartials: showPartials
             ),
             modelId: modelId,
             device: device
@@ -485,6 +497,7 @@ private func printUsage() {
     print("  --no-translate            Disable translation (transcription only)")
     print("  --translate-provider <p>  Translation provider: auto|model|google|off (default: auto)")
     print("  --jsonl                   Output in JSONL format")
+    print("  --show-partials           Print partial transcripts ([…] / [✓]) (default: off)")
     print("")
     print("Language values:")
     print("  You can pass common codes or names. The CLI normalizes them for the model prompt.")
@@ -513,6 +526,7 @@ private func printRealtimeHelp() {
     print("  --no-translate   Transcribe only, no translation")
     print("  --translate-provider <p>  auto|model|google|off (default: auto)")
     print("  --jsonl          Output structured JSONL")
+    print("  --show-partials  Print partial transcripts ([…] / [✓])")
     print("")
     print("Language values:")
     print("  Examples: --to en, --to English, --from zh, --from Chinese")
@@ -539,7 +553,7 @@ Task {
                 try await runTranscribe(audioPath: audioPath, modelId: args.modelId)
             }
 
-        case .realtime(let targetLang, let sourceLang, let window, let step, let vad, let translate, let provider, let format):
+        case .realtime(let targetLang, let sourceLang, let window, let step, let vad, let translate, let provider, let format, let showPartials):
             if args.device == "cpu" {
                 try await Device.withDefaultDevice(.cpu) {
                     try await runRealtime(
@@ -551,7 +565,8 @@ Task {
                         enableVAD: vad,
                         enableTranslation: translate,
                         translationProvider: provider,
-                        format: format
+                        format: format,
+                        showPartials: showPartials
                     )
                 }
             } else {
@@ -564,7 +579,8 @@ Task {
                     enableVAD: vad,
                     enableTranslation: translate,
                     translationProvider: provider,
-                    format: format
+                    format: format,
+                    showPartials: showPartials
                 )
             }
         }

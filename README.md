@@ -187,17 +187,23 @@ for await event in stream {
 # Build CLI
 swift build -c release
 
+# If using Google Cloud Translation, set your API key first
+export QWEN3_ASR_GOOGLE_TRANSLATE_API_KEY="YOUR_API_KEY"
+
 # Transcribe audio file
 qwen3-asr-cli transcribe audio.wav
 
-# Realtime microphone translation
-qwen3-asr-cli realtime --to en --from auto
+# Realtime microphone translation (Google)
+qwen3-asr-cli realtime --from cn --to en --translate-provider google
 
 # Japanese translation with JSONL output
 qwen3-asr-cli realtime --to ja --window 15 --jsonl
 
 # Transcription only (no translation)
 qwen3-asr-cli realtime --to en --no-translate
+
+# Show partial transcripts ([…] / [✓]) in realtime mode
+qwen3-asr-cli realtime --from cn --to en --translate-provider google --show-partials
 ```
 
 ## Architecture
