@@ -24,7 +24,7 @@ struct ContentView: View {
 
     @State private var from = SupportedLanguage.chinese
     @State private var to = SupportedLanguage.english
-    @State private var translationProvider: TranslationProvider = .apple
+    @State private var translationProvider: TranslationProvider
     @State private var showSettings = false
 
     // Keeping this in state makes `.translationTask` restart when languages change.
@@ -34,6 +34,13 @@ struct ContentView: View {
     )
 
     private let modelIdDefault = "mlx-community/Qwen3-ASR-0.6B-4bit"
+
+    init() {
+        let key = ProcessInfo.processInfo.environment["QWEN3_ASR_GOOGLE_TRANSLATE_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultProvider: TranslationProvider = (key?.isEmpty == false) ? .googleCloud : .apple
+        _translationProvider = State(initialValue: defaultProvider)
+    }
 
     var body: some View {
         NavigationStack {
