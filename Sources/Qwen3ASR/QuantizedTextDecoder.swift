@@ -3,6 +3,14 @@ import MLX
 import MLXNN
 import MLXFast
 
+private func manualSoftmax(_ x: MLXArray, axis: Int) -> MLXArray {
+    // Stable softmax: exp(x - max) / sum(exp(x - max))
+    let m = max(x, axis: axis, keepDims: true)
+    let e = exp(x - m)
+    let s = sum(e, axis: axis, keepDims: true)
+    return e / s
+}
+
 /// Pre-quantized embedding that can be loaded directly from safetensors
 public class PreQuantizedEmbedding: Module {
     public let groupSize: Int
@@ -168,7 +176,11 @@ public class QuantizedTextAttention: Module {
             attnWeights = attnWeights + mask
         }
 
-        attnWeights = softmax(attnWeights, axis: -1)
+        if Qwen3ASRRuntimeConfig.useManualSoftmax {
+            attnWeights = manualSoftmax(attnWeights, axis: -1)
+        } else {
+            attnWeights = softmax(attnWeights, axis: -1)
+        }
 
         // Apply attention to values
         var attnOutput = matmul(attnWeights, expandedValues)

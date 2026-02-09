@@ -38,6 +38,9 @@ public enum Qwen3ASRDiagnostics {
         // 1) Pure synthetic quantizedMM check (detects backend/kernel issues).
         runQuantizedMMSanityCheck()
 
+        // 1b) Softmax sanity check (detects backend kernel issues in attention path).
+        runSoftmaxSanityCheck()
+
         // 2) If available, validate quantizedMM against a *real* model layer weight shape.
         if let textDecoder {
             runModelLayerSanityChecks(textDecoder: textDecoder)
@@ -144,6 +147,44 @@ public enum Qwen3ASRDiagnostics {
                 let maxAbs = max(diff).item(Float.self)
                 let meanAbs = mean(diff).item(Float.self)
                 print("Qwen3ASRDiagnostics: layer=\(name) dims=\(inDim)->\(outDim) iter=\(i) max_abs=\(maxAbs) mean_abs=\(meanAbs)")
+            }
+        }
+    }
+
+    private static func runSoftmaxSanityCheck() {
+        let env = ProcessInfo.processInfo.environment
+        let rawIters = env["QWEN3_ASR_DIAGNOSTICS_ITERS"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let iters = max(1, Int(rawIters ?? "") ?? 2)
+
+        // Shapes roughly like attention logits: [batch, heads, q, k]
+        let cases: [(name: String, shape: [Int])] = [
+            ("attn_64x64", [1, 16, 64, 64]),
+            ("attn_1x128", [1, 16, 1, 128]),
+            ("attn_1x256", [1, 16, 1, 256]),
+        ]
+
+        print("Qwen3ASRDiagnostics: running softmax sanity (iters=\(iters))")
+
+        for (name, shape) in cases {
+            for i in 0..<iters {
+                let x = MLXRandom.normal(shape).asType(.float32)
+                let y = softmax(x, axis: -1).asType(.float32)
+
+                // Manual stable softmax reference.
+                let m = max(x, axis: -1, keepDims: true)
+                let e = exp(x - m)
+                let s = sum(e, axis: -1, keepDims: true)
+                let yRef = (e / s).asType(.float32)
+
+                let diff = abs(y - yRef).flattened()
+                let maxAbs = max(diff).item(Float.self)
+                let meanAbs = mean(diff).item(Float.self)
+
+                // Also check sum-to-1 on the last axis (should be ~1 everywhere).
+                let sums = sum(y, axis: -1).flattened()
+                let sumMaxDev = max(abs(sums - 1.0)).item(Float.self)
+
+                print("Qwen3ASRDiagnostics: softmax case=\(name) iter=\(i) max_abs=\(maxAbs) mean_abs=\(meanAbs) sum_max_dev=\(sumMaxDev)")
             }
         }
     }
