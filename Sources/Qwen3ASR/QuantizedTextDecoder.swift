@@ -330,21 +330,19 @@ public class QuantizedTextModel: Module {
 
     /// Create causal attention mask for autoregressive generation
     private func createCausalMask(seqLen: Int, cacheLen: Int) -> MLXArray {
-        // Create mask for attention where each position can only attend to previous positions
+        // Create mask for attention where each position can only attend to previous positions.
         // Shape: [1, 1, seqLen, seqLen + cacheLen]
         let totalLen = seqLen + cacheLen
 
-        // Create the causal mask - positions can attend to positions <= their own
-        // Mask is 0 for allowed positions, -inf for masked positions
-        var mask = MLXArray.zeros([seqLen, totalLen])
-
-        // Fill upper triangle with -inf (positions that shouldn't be attended)
-        for i in 0..<seqLen {
-            let queryPos = i + cacheLen
-            for j in (queryPos + 1)..<totalLen {
-                mask[i, j] = MLXArray(Float(-1e9))
-            }
-        }
+        // Vectorized version (critical for iOS):
+        // Avoid per-element updates from Swift loops, which can be extremely slow and can behave
+        // inconsistently across backends. We mask positions where `j > cacheLen + i`.
+        //
+        // Use `triu(ones, k: cacheLen + 1)` which yields 1s for j >= i + cacheLen + 1,
+        // i.e. j > cacheLen + i, and 0 elsewhere.
+        let ones = MLXArray.ones([seqLen, totalLen], dtype: .float32)
+        let upper = triu(ones, k: cacheLen + 1)
+        let mask = upper * Float(-1e9)
 
         // Add batch and head dimensions: [seqLen, totalLen] -> [1, 1, seqLen, totalLen]
         return mask.expandedDimensions(axes: [0, 1])
