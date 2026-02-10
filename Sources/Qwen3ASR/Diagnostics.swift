@@ -17,9 +17,9 @@ public enum Qwen3ASRDiagnostics {
     }()
 
     private static var shouldRun: Bool {
-        // Users often already have `QWEN3_ASR_DEBUG=1` enabled when debugging iOS issues.
-        // Treat that as enough to run basic kernel sanity checks.
-        enabled || Qwen3ASRDebug.enabled
+        // Keep this explicitly opt-in. These checks dequantize reference weights and can allocate
+        // noticeable memory on iOS, risking jetsam when users already load the full model.
+        enabled
     }
 
     /// Basic correctness check for MLX's 4-bit `quantizedMM` implementation.

@@ -31,9 +31,50 @@ enum Qwen3ASRDebug {
         }
     }()
 
+    // Weight-by-weight casting logs can be extremely verbose (thousands of lines) and can cause
+    // Xcode console/memory issues on iOS. Keep it separately opt-in.
+    static let weightsEnabled: Bool = {
+        guard enabled else { return false }
+        let raw = ProcessInfo.processInfo.environment["QWEN3_ASR_DEBUG_WEIGHTS"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch raw {
+        case "1", "true", "yes", "y", "on":
+            return true
+        default:
+            return false
+        }
+    }()
+
+    // Best-effort memory logging (MB). Useful to catch iOS jetsam conditions while debugging.
+    static let memoryEnabled: Bool = {
+        guard enabled else { return false }
+        let raw = ProcessInfo.processInfo.environment["QWEN3_ASR_DEBUG_MEM"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch raw {
+        case "1", "true", "yes", "y", "on":
+            return true
+        default:
+            return false
+        }
+    }()
+
     static func log(_ message: @autoclosure () -> String) {
         guard enabled else { return }
         print(message())
+    }
+
+    static func logWeights(_ message: @autoclosure () -> String) {
+        guard weightsEnabled else { return }
+        print(message())
+    }
+
+    static func logMemory(_ label: String) {
+        guard memoryEnabled else { return }
+        if let mb = Qwen3ASRRuntimeMetrics.residentMemoryMB() {
+            print("Qwen3ASRDebug: mem_mb=\(mb) \(label)")
+        }
     }
 
     static func logTensorStats(_ message: @autoclosure () -> String) {
