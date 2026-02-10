@@ -65,6 +65,21 @@ public class PreQuantizedEmbedding: Module {
             mode: .affine
         )
     }
+
+    /// Debug helper: dequantize a small set of vocab rows (avoid dequantizing the full vocab).
+    /// - Returns: [count, dimensions]
+    public func dequantizeRows(_ ids: MLXArray, dtype: DType = .float32) -> MLXArray {
+        let out = dequantized(
+            weight[ids],
+            scales: scales[ids],
+            biases: biases[ids],
+            groupSize: groupSize,
+            bits: bits,
+            mode: .affine,
+            dtype: dtype
+        )
+        return out
+    }
 }
 
 /// Multi-head attention for Qwen3 text decoder with GQA and RoPE (quantized version)

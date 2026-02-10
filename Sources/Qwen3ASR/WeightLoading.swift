@@ -16,7 +16,7 @@ public enum WeightLoader {
     /// This is correctness-first. Quant params are small relative to the packed 4-bit weights.
     private static func castQuantParamForiOS(_ array: MLXArray, name: String) -> MLXArray {
         guard array.dtype == .bfloat16 else { return array }
-        Qwen3ASRDebug.log("WeightLoader: casting \(name) bfloat16 -> float32 (iOS)")
+        Qwen3ASRDebug.logWeights("WeightLoader: casting \(name) bfloat16 -> float32 (iOS)")
         return array.asType(.float32)
     }
 
@@ -40,10 +40,11 @@ public enum WeightLoader {
         }()
 
         if useFP32 {
-            Qwen3ASRDebug.log("WeightLoader: casting \(name) bfloat16 -> float32 (iOS)")
+            Qwen3ASRDebug.log("WeightLoader: QWEN3_ASR_IOS_BF16_WEIGHTS_FP32=1 (iOS) -> forcing bf16 float weights to float32. This can trigger jetsam (OOM) on iPhone.")
+            Qwen3ASRDebug.logWeights("WeightLoader: casting \(name) bfloat16 -> float32 (iOS)")
             return array.asType(.float32)
         } else {
-            Qwen3ASRDebug.log("WeightLoader: casting \(name) bfloat16 -> float16 (iOS)")
+            Qwen3ASRDebug.logWeights("WeightLoader: casting \(name) bfloat16 -> float16 (iOS)")
             return array.asType(.float16)
         }
     }

@@ -205,6 +205,27 @@ public class Qwen3ASRModel {
             return 0
         }()
 
+        let debugLMHeadCheck: Bool = {
+            let raw = env["QWEN3_ASR_DEBUG_LMHEAD_CHECK"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            switch raw {
+            case "1", "true", "yes", "y", "on":
+                return true
+            default:
+                return false
+            }
+        }()
+
+        let debugLMHeadCheckN: Int = {
+            let raw = env["QWEN3_ASR_DEBUG_LMHEAD_CHECK_N"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard let raw, !raw.isEmpty else { return 256 }
+            if let n = Int(raw), n > 0 { return min(max(n, 32), 2048) }
+            return 256
+        }()
+
         // Qwen3-ASR prompt format (from mlx-audio implementation):
         // <|im_start|>system\n<|im_end|>\n
         // <|im_start|>user\n<|audio_start|><|audio_pad|>...<|audio_end|><|im_end|>\n
@@ -292,6 +313,8 @@ public class Qwen3ASRModel {
 
         Qwen3ASRDebug.log("Input IDs length: \(inputIds.count), audio tokens: \(numAudioTokens) at positions \(audioStartIndex)..<\(audioEndIndex)")
 
+        Qwen3ASRDebug.logMemory("after_prompt_build")
+
         // Get text embeddings for all tokens
         let inputIdsTensor = MLXArray(inputIds).expandedDimensions(axis: 0)  // [1, seq_len]
         var inputEmbeds = textDecoder.embedTokens(inputIdsTensor)  // [1, seq_len, hidden]
@@ -333,6 +356,7 @@ public class Qwen3ASRModel {
 	        }
 
 	        Qwen3ASRDebug.log("Prompt structure - before_audio:\(audioStartIndex), audio:\(numAudioTokens), after_audio:\(inputIds.count - audioEndIndex)")
+        Qwen3ASRDebug.logMemory("after_embed_insert")
 
         // Initialize KV cache
         var cache: [(MLXArray, MLXArray)]? = nil
@@ -356,6 +380,64 @@ public class Qwen3ASRModel {
         var logits = textDecoder.embedTokens.asLinear(lastHidden)
         var nextToken = argMax(logits, axis: -1).squeezed().item(Int32.self)
         generatedTokens.append(nextToken)
+
+        if Qwen3ASRDebug.enabled, debugLMHeadCheck {
+            // Validate lm-head (quantizedMM transpose path) on a subset of vocab rows:
+            // Compare `asLinear(lastHidden)` vs `matmul(lastHidden, dequantized(rows).T)` for selected ids.
+            //
+            // This is intended to catch Metal backend issues that might not show up in generic diagnostics.
+            let vocabSize = textDecoder.config.vocabSize
+            let n = min(debugLMHeadCheckN, vocabSize)
+            let topM = min(64, n)
+
+            // Materialize logits on CPU once (vocab ~151k floats => ~0.6MB).
+            let flatAll = logits.squeezed().asArray(Float.self)
+
+            // Extract topM token ids from the quantized logits.
+            var best: [(idx: Int, value: Float)] = []
+            best.reserveCapacity(topM)
+            for (i, v) in flatAll.enumerated() {
+                if best.count < topM {
+                    best.append((i, v))
+                    if best.count == topM { best.sort { $0.value > $1.value } }
+                    continue
+                }
+                if v <= best[topM - 1].value { continue }
+                best[topM - 1] = (i, v)
+                var j = topM - 1
+                while j > 0 && best[j].value > best[j - 1].value {
+                    best.swapAt(j, j - 1)
+                    j -= 1
+                }
+            }
+
+            var ids: [Int32] = best.map { Int32($0.idx) }
+
+            // Fill remaining ids with evenly spaced samples over vocab (deterministic).
+            if ids.count < n {
+                let remaining = n - ids.count
+                let stride = max(1, vocabSize / remaining)
+                var x = 0
+                while ids.count < n {
+                    ids.append(Int32(x))
+                    x = (x + stride) % vocabSize
+                }
+            }
+
+            // Compute reference logits on this subset via dequantized rows.
+            let idsTensor = MLXArray(ids)
+            let wRows = textDecoder.embedTokens.dequantizeRows(idsTensor, dtype: .float32) // [n, hidden]
+            let h = lastHidden.squeezed(axis: 0).squeezed(axis: 0).asType(.float32) // [hidden]
+            let ref = matmul(h.expandedDimensions(axis: 0), wRows.transposed(1, 0)).squeezed().asType(.float32) // [n]
+
+            // Gather quantized logits for the same ids.
+            let q = logits.squeezed()[idsTensor].asType(.float32) // [n]
+
+            let diff = abs(q - ref).flattened()
+            let maxAbs = max(diff).item(Float.self)
+            let meanAbs = mean(diff).item(Float.self)
+            Qwen3ASRDebug.log(String(format: "LMHeadCheck: n=%d max_abs=%.6f mean_abs=%.6f", n, maxAbs, meanAbs))
+        }
 
         if Qwen3ASRDebug.enabled {
             let logitsFlat = logits.squeezed()
