@@ -176,6 +176,17 @@ public class Qwen3ASRModel {
         prompt: String?
     ) -> String {
         let env = ProcessInfo.processInfo.environment
+        let debugAudioInfluence: Bool = {
+            let raw = env["QWEN3_ASR_DEBUG_AUDIO_INFLUENCE"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            switch raw {
+            case "1", "true", "yes", "y", "on":
+                return true
+            default:
+                return false
+            }
+        }()
         let shouldScaleAudioEmbeds: Bool = {
             // Default ON everywhere (matches CLI). Disable via env var when needed for performance.
             let raw = env["QWEN3_ASR_DISABLE_EMBED_SCALE"]?
@@ -284,6 +295,7 @@ public class Qwen3ASRModel {
         // Get text embeddings for all tokens
         let inputIdsTensor = MLXArray(inputIds).expandedDimensions(axis: 0)  // [1, seq_len]
         var inputEmbeds = textDecoder.embedTokens(inputIdsTensor)  // [1, seq_len, hidden]
+        let inputEmbedsNoAudio = inputEmbeds
 
 	        // If we have audio embeddings, insert them into the prompt
 	        if let audioEmbeds = audioEmbeds, numAudioTokens > 0 {
@@ -328,6 +340,11 @@ public class Qwen3ASRModel {
         // Generate tokens
         var generatedTokens: [Int32] = []
 
+        // Optional debug: run a second step-0 pass without inserting audio embeddings and compare.
+        // This is expensive; keep behind QWEN3_ASR_DEBUG_AUDIO_INFLUENCE=1.
+        var debugNoAudioLogits: MLXArray? = nil
+        var debugNoAudioNextToken: Int32? = nil
+
         // First pass: process the full input embeddings
         var (hiddenStates, newCache) = textDecoder(inputsEmbeds: inputEmbeds, cache: cache)
         cache = newCache
@@ -349,6 +366,33 @@ public class Qwen3ASRModel {
 
             Qwen3ASRDebug.log("First token generated: \(nextToken) (EOS=\(Qwen3ASRTokens.eosTokenId))")
             Qwen3ASRDebug.log("Input embeds shape: \(inputEmbeds.shape), hidden states shape: \(hiddenStates.shape)")
+        }
+
+        if Qwen3ASRDebug.enabled, debugAudioInfluence, numAudioTokens > 0 {
+            // Compare step-0 logits with and without audio insertion. If these are nearly identical,
+            // the decoder is effectively ignoring audio (masking/op bug).
+            let (hsNoAudio, _) = textDecoder(inputsEmbeds: inputEmbedsNoAudio, cache: nil)
+            let seqLenNoAudio = hsNoAudio.dim(1)
+            let lastHiddenNoAudio = hsNoAudio[0..., (seqLenNoAudio - 1)..<seqLenNoAudio, 0...]  // [1,1,hidden]
+            let logitsNoAudio = textDecoder.embedTokens.asLinear(lastHiddenNoAudio)
+            let nextNoAudio = argMax(logitsNoAudio, axis: -1).squeezed().item(Int32.self)
+
+            debugNoAudioLogits = logitsNoAudio
+            debugNoAudioNextToken = nextNoAudio
+
+            // Cosine similarity + L1/L2 deltas between last hidden states.
+            let a = lastHidden.squeezed(axis: 0).squeezed(axis: 0)
+            let b = lastHiddenNoAudio.squeezed(axis: 0).squeezed(axis: 0)
+            let dot = sum(a * b).item(Float.self)
+            let normA = sqrt(sum(a * a)).item(Float.self)
+            let normB = sqrt(sum(b * b)).item(Float.self)
+            let cos = (normA > 0 && normB > 0) ? (dot / (normA * normB)) : 0
+
+            let diff = abs(a - b)
+            let l1 = sum(diff).item(Float.self)
+            let l2 = sqrt(sum(diff * diff)).item(Float.self)
+
+            Qwen3ASRDebug.log(String(format: "AudioInfluence: lastHidden cos=%.6f l1=%.3f l2=%.3f next_with_audio=%d next_no_audio=%d", cos, l1, l2, nextToken, nextNoAudio))
         }
 
         if Qwen3ASRDebug.enabled, debugTopK > 0, let tokenizer = tokenizer {
@@ -382,6 +426,40 @@ public class Qwen3ASRModel {
                 let decoded = tokenizer.decode(tokens: [id])
                 let valStr = String(format: "%.4f", entry.value)
                 Qwen3ASRDebug.log("  #\(rank + 1): id=\(id) logit=\(valStr) raw='\(rawTok)' decoded='\(decoded)'")
+            }
+
+            if Qwen3ASRDebug.enabled, debugAudioInfluence, let debugNoAudioLogits {
+                let flatNoAudio = debugNoAudioLogits.squeezed().asArray(Float.self)
+                var bestNoAudio: [(idx: Int, value: Float)] = []
+                bestNoAudio.reserveCapacity(debugTopK)
+                for (i, v) in flatNoAudio.enumerated() {
+                    if bestNoAudio.count < debugTopK {
+                        bestNoAudio.append((i, v))
+                        if bestNoAudio.count == debugTopK {
+                            bestNoAudio.sort { $0.value > $1.value }
+                        }
+                        continue
+                    }
+                    if v <= bestNoAudio[debugTopK - 1].value { continue }
+                    bestNoAudio[debugTopK - 1] = (i, v)
+                    var j = debugTopK - 1
+                    while j > 0 && bestNoAudio[j].value > bestNoAudio[j - 1].value {
+                        bestNoAudio.swapAt(j, j - 1)
+                        j -= 1
+                    }
+                }
+
+                Qwen3ASRDebug.log("Top-\(debugTopK) tokens @ step0 (no audio):")
+                for (rank, entry) in bestNoAudio.enumerated() {
+                    let id = entry.idx
+                    let rawTok = tokenizer.getToken(for: id) ?? "<?>"
+                    let decoded = tokenizer.decode(tokens: [id])
+                    let valStr = String(format: "%.4f", entry.value)
+                    Qwen3ASRDebug.log("  #\(rank + 1): id=\(id) logit=\(valStr) raw='\(rawTok)' decoded='\(decoded)'")
+                }
+                if let debugNoAudioNextToken {
+                    Qwen3ASRDebug.log("AudioInfluence: next_no_audio=\(debugNoAudioNextToken)")
+                }
             }
         }
 
